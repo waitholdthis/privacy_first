@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildPacketPreview,
   buildSyncPacket,
   calculateSovereigntyScore,
   estimateLocalFootprint,
+  generateRemediationPlan,
   generateRunbook,
   type WorkspaceInput,
 } from './privacyEngine';
@@ -53,5 +55,46 @@ describe('privacy engine', () => {
     expect(packet.transport).toBe('manual-file-transfer');
     expect(packet.cloudEndpoints).toEqual([]);
     expect(packet.manifestHash.length).toBe(64);
+  });
+
+  it('changes the packet hash when nested document metadata changes', () => {
+    const original = buildSyncPacket(workspace, 'device-parker-mac-mini');
+    const modified = buildSyncPacket(
+      {
+        ...workspace,
+        documents: workspace.documents.map((document) =>
+          document.title === 'Parts inventory' ? { ...document, updatedAt: '2026-06-06' } : document,
+        ),
+      },
+      'device-parker-mac-mini',
+    );
+
+    expect(modified.manifestHash).not.toBe(original.manifestHash);
+    expect(modified.id).not.toBe(original.id);
+  });
+
+  it('prioritizes hardening steps by expected sovereignty impact', () => {
+    const exposedWorkspace: WorkspaceInput = {
+      ...workspace,
+      encryptionEnabled: false,
+      externalTrackers: 2,
+      cloudDependencies: 3,
+      documents: workspace.documents.slice(0, 2),
+    };
+
+    const plan = generateRemediationPlan(exposedWorkspace);
+
+    expect(plan[0].title).toBe('Turn on vault encryption before capture');
+    expect(plan.map((item) => item.title)).toContain('Remove external telemetry and analytics');
+    expect(plan.map((item) => item.title)).toContain('Create a no-cloud fallback route');
+  });
+
+  it('assembles a field packet preview with deterministic armor and file name', () => {
+    const preview = buildPacketPreview(workspace, 'device-parker-mac-mini');
+
+    expect(preview.fileName).toMatch(/\.cipherpacket$/);
+    expect(preview.payloadBytes).toBeGreaterThan(500);
+    expect(preview.armor).toContain('cipherdesk-field');
+    expect(preview.readiness).toBe('needs-hardening');
   });
 });

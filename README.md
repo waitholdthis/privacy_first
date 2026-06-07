@@ -24,6 +24,8 @@ CipherDesk is designed around that reality:
 - Offline runtime calculator: estimates battery-backed operating time for local devices.
 - Runbook generator: orders operational notes by sensitivity and emits handling protocols.
 - Secure sync packet manifest: creates a deterministic packet ID/hash without any cloud endpoint.
+- Hardening queue: converts privacy posture risks into prioritized remediation steps with expected sovereignty impact.
+- `.cipherpacket` preview: assembles a deterministic portable packet payload with copy/download controls for manual transfer workflows.
 - Cinematic React/Vite interface with scenario switching and live calculations.
 
 ## Privacy model
@@ -42,6 +44,16 @@ Future production direction:
 - Encrypt vault records using WebCrypto AES-GCM with a user-held passphrase or hardware key.
 - Export/import encrypted `.cipherpacket` files for manual sync via USB, AirDrop, Syncthing, local network, or user-owned storage.
 - Add optional peer-to-peer sync without a centralized vendor data store.
+
+## Latest improvement sprint
+
+The second sprint turned CipherDesk from a static MVP demo into a sharper product workflow:
+
+- Fixed nested packet hashing so document metadata changes now alter packet IDs/hashes.
+- Added a deterministic packet preview builder with filename, payload byte count, readiness state, and armored packet fingerprint.
+- Added risk remediation logic that prioritizes encryption, trackers, cloud dependencies, missing runbooks, and offline criteria.
+- Added a fourth “Cloud-Leaky Baseline” scenario so the UI demonstrates both clean and compromised privacy postures.
+- Added copy and download actions for the generated `.cipherpacket` preview.
 
 ## Stack
 
@@ -62,14 +74,14 @@ npm run dev
 
 ## Development notes
 
-The core engine lives in `src/core/privacyEngine.ts` and is covered by `src/core/privacyEngine.test.ts`.
+The core engine lives in `src/core/privacyEngine.ts` and is covered by `src/core/privacyEngine.test.ts`, including packet hash determinism and hardening-queue behavior.
 
 The interface lives in `src/main.tsx` and `src/styles.css`.
 
 ## Roadmap
 
 1. Add real encrypted local vault persistence with IndexedDB + WebCrypto.
-2. Add `.cipherpacket` export/import with passphrase-based encryption.
+2. Upgrade `.cipherpacket` preview into passphrase-encrypted export/import.
 3. Add user-created calculators: battery runtime, storage forecasting, network recovery, solar sizing, medication cold-chain windows, field inventory deltas.
 4. Add markdown runbook editor with local full-text search.
 5. Add optional local-only PWA install mode.

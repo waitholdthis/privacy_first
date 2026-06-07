@@ -25,6 +25,13 @@ export interface SovereigntyScore {
   risks: string[];
 }
 
+export interface RemediationItem {
+  priority: 'critical' | 'high' | 'medium';
+  title: string;
+  action: string;
+  impact: number;
+}
+
 const sensitivityWeight: Record<Sensitivity, number> = {
   public: 1,
   internal: 2,
@@ -95,6 +102,57 @@ export function generateRunbook(workspace: WorkspaceInput) {
     }));
 }
 
+export function generateRemediationPlan(workspace: WorkspaceInput): RemediationItem[] {
+  const items: RemediationItem[] = [];
+
+  if (!workspace.encryptionEnabled) {
+    items.push({
+      priority: 'critical',
+      title: 'Turn on vault encryption before capture',
+      action: 'Enable passphrase-backed AES-GCM for every private, secret, and internal record.',
+      impact: 24,
+    });
+  }
+
+  if (workspace.externalTrackers > 0) {
+    items.push({
+      priority: 'high',
+      title: 'Remove external telemetry and analytics',
+      action: `Eliminate ${workspace.externalTrackers} tracker${workspace.externalTrackers > 1 ? 's' : ''} and replace metrics with local-only audit logs.`,
+      impact: Math.min(30, workspace.externalTrackers * 9),
+    });
+  }
+
+  if (workspace.cloudDependencies > 0) {
+    items.push({
+      priority: 'high',
+      title: 'Create a no-cloud fallback route',
+      action: `Replace ${workspace.cloudDependencies} cloud dependency${workspace.cloudDependencies > 1 ? 'ies' : ''} with encrypted packet export, LAN sync, or removable-media transfer.`,
+      impact: Math.min(20, workspace.cloudDependencies * 4),
+    });
+  }
+
+  if (workspace.documents.length < 5) {
+    items.push({
+      priority: 'medium',
+      title: 'Capture missing operating knowledge',
+      action: 'Add at least five local runbooks/checklists so the workspace remains useful under pressure.',
+      impact: Math.max(2, (5 - workspace.documents.length) * 2),
+    });
+  }
+
+  if (workspace.offlineCriticality < 8) {
+    items.push({
+      priority: 'medium',
+      title: 'Define offline failure criteria',
+      action: 'Document the point where the team must switch from cloud workflow to local-only operations.',
+      impact: Math.round((8 - workspace.offlineCriticality) * 2.4),
+    });
+  }
+
+  return items.sort((a, b) => b.impact - a.impact);
+}
+
 export function buildSyncPacket(workspace: WorkspaceInput, deviceId: string) {
   const manifest = {
     workspace: workspace.name,
@@ -115,6 +173,24 @@ export function buildSyncPacket(workspace: WorkspaceInput, deviceId: string) {
     cloudEndpoints: [] as string[],
     manifestHash: pseudoSha256(manifestText),
     manifest,
+  };
+}
+
+export function buildPacketPreview(workspace: WorkspaceInput, deviceId: string) {
+  const packet = buildSyncPacket(workspace, deviceId);
+  const score = calculateSovereigntyScore(workspace);
+  const footprint = estimateLocalFootprint(workspace.documents, workspace.encryptionEnabled);
+  const runbook = generateRunbook(workspace);
+  const remediation = generateRemediationPlan(workspace);
+  const sealedPayload = stableStringify({ packet, score, footprint, runbook, remediation });
+  const armor = chunk(`${packet.id}.${pseudoSha256(sealedPayload)}.${shortHash(sealedPayload)}`, 16).join('-');
+
+  return {
+    ...packet,
+    fileName: `${packet.id}.cipherpacket`,
+    payloadBytes: new TextEncoder().encode(sealedPayload).length,
+    armor,
+    readiness: score.score >= 88 && remediation.length <= 1 ? 'field-ready' : 'needs-hardening',
   };
 }
 
@@ -141,7 +217,18 @@ function slugify(value: string) {
 }
 
 function stableStringify(value: unknown): string {
-  return JSON.stringify(value, Object.keys(value as object).sort());
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => stableStringify(entry)).join(',')}]`;
+  }
+
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => `${JSON.stringify(key)}:${stableStringify(nested)}`)
+      .join(',')}}`;
+  }
+
+  return JSON.stringify(value);
 }
 
 function shortHash(input: string) {
@@ -156,4 +243,12 @@ function shortHash(input: string) {
 function pseudoSha256(input: string) {
   const parts = Array.from({ length: 8 }, (_, index) => shortHash(`${index}:${input}:${input.length}`));
   return parts.join('').slice(0, 64);
+}
+
+function chunk(value: string, size: number) {
+  const chunks: string[] = [];
+  for (let index = 0; index < value.length; index += size) {
+    chunks.push(value.slice(index, index + size));
+  }
+  return chunks;
 }

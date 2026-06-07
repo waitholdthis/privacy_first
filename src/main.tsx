@@ -1,22 +1,27 @@
 import React, { useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
+  AlertTriangle,
   BatteryCharging,
+  CheckCircle2,
+  Clipboard,
+  CloudOff,
   DatabaseZap,
+  Download,
   FileKey2,
   Fingerprint,
   HardDrive,
   LockKeyhole,
   Radar,
-  CloudOff,
   ShieldCheck,
   Workflow,
 } from 'lucide-react';
 import {
-  buildSyncPacket,
+  buildPacketPreview,
   calculateSovereigntyScore,
   demoWorkspace,
   estimateLocalFootprint,
+  generateRemediationPlan,
   generateRunbook,
   type WorkspaceInput,
 } from './core/privacyEngine';
@@ -48,6 +53,17 @@ const scenarios: WorkspaceInput[] = [
     externalTrackers: 0,
     offlineCriticality: 8,
   },
+  {
+    name: 'Cloud-Leaky Baseline',
+    documents: [
+      { title: 'Shared SOP draft', kind: 'runbook', words: 420, sensitivity: 'private', updatedAt: '2026-06-05' },
+      { title: 'Vendor login checklist', kind: 'checklist', words: 180, sensitivity: 'secret', updatedAt: '2026-06-04' },
+    ],
+    cloudDependencies: 3,
+    encryptionEnabled: false,
+    externalTrackers: 2,
+    offlineCriticality: 6,
+  },
 ];
 
 function App() {
@@ -55,13 +71,37 @@ function App() {
   const [watts, setWatts] = useState(42);
   const [batteryWh, setBatteryWh] = useState(512);
   const [deviceId, setDeviceId] = useState('device-parker-mac-mini');
+  const [packetStatus, setPacketStatus] = useState('ready');
   const workspace = scenarios[selected];
 
   const score = useMemo(() => calculateSovereigntyScore(workspace), [workspace]);
   const footprint = useMemo(() => estimateLocalFootprint(workspace.documents, workspace.encryptionEnabled), [workspace]);
   const runbook = useMemo(() => generateRunbook(workspace), [workspace]);
-  const syncPacket = useMemo(() => buildSyncPacket(workspace, deviceId), [workspace, deviceId]);
+  const remediation = useMemo(() => generateRemediationPlan(workspace), [workspace]);
+  const packetPreview = useMemo(() => buildPacketPreview(workspace, deviceId), [workspace, deviceId]);
   const runtime = Math.max(0, Math.floor((batteryWh / Math.max(watts, 1)) * 10) / 10);
+  const packetJson = JSON.stringify(packetPreview, null, 2);
+
+  const resetPacketStatus = (value: string) => {
+    setPacketStatus(value);
+    window.setTimeout(() => setPacketStatus('ready'), 1800);
+  };
+
+  const copyPacket = async () => {
+    await navigator.clipboard.writeText(packetJson);
+    resetPacketStatus('copied');
+  };
+
+  const downloadPacket = () => {
+    const blob = new Blob([packetJson], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = packetPreview.fileName;
+    link.click();
+    URL.revokeObjectURL(url);
+    resetPacketStatus('downloaded');
+  };
 
   return (
     <main>
@@ -92,7 +132,7 @@ function App() {
             <strong>{score.score}</strong>
             <span className={`grade grade${score.grade}`}>Grade {score.grade}</span>
             <div className="signalBars"><i /><i /><i /><i /><i /></div>
-            <p>{workspace.name} is ready for encrypted manual transfer with {score.risks.length || 'no'} active risk flags.</p>
+            <p>{workspace.name} is {packetPreview.readiness === 'field-ready' ? 'field-ready' : 'not sealed yet'} with {score.risks.length || 'no'} active risk flags.</p>
           </div>
         </div>
       </section>
@@ -100,7 +140,7 @@ function App() {
       <section className="console" id="workbench">
         <div className="sectionHeader">
           <span><Radar size={18} /> Mission workbench</span>
-          <h2>Three utilities. One local vault. No account creation.</h2>
+          <h2>Audit the vault. Harden the risks. Seal the packet.</h2>
         </div>
 
         <div className="scenarioSwitch" role="tablist" aria-label="Workspace scenarios">
@@ -144,6 +184,23 @@ function App() {
           </article>
         </div>
 
+        <div className="hardeningGrid">
+          <article className="panel readiness">
+            <header>{packetPreview.readiness === 'field-ready' ? <CheckCircle2 /> : <AlertTriangle />} Field readiness</header>
+            <strong>{packetPreview.readiness === 'field-ready' ? 'Ready to seal' : 'Needs hardening'}</strong>
+            <p>{remediation.length ? `${remediation.length} hardening step${remediation.length > 1 ? 's' : ''} recommended before field transfer.` : 'No high-impact hardening steps remain for this scenario.'}</p>
+          </article>
+          <article className="panel remediation">
+            <header><ShieldCheck /> Hardening queue</header>
+            {remediation.length ? remediation.map((item) => (
+              <div className={`remediationItem ${item.priority}`} key={item.title}>
+                <span>{item.priority}</span>
+                <div><strong>{item.title}</strong><p>{item.action}</p><em>+{item.impact} potential sovereignty points</em></div>
+              </div>
+            )) : <p>All critical privacy posture checks are green.</p>}
+          </article>
+        </div>
+
         <div className="runbookGrid">
           <article className="panel wide">
             <header><Workflow /> Auto-generated operating runbook</header>
@@ -160,7 +217,17 @@ function App() {
           <article className="panel wide sync">
             <header><FileKey2 /> Secure sync packet</header>
             <label>Receiving device ID<input value={deviceId} onChange={(event) => setDeviceId(event.target.value)} /></label>
-            <pre>{JSON.stringify(syncPacket, null, 2)}</pre>
+            <div className="packetActions">
+              <button onClick={copyPacket}><Clipboard size={16} /> Copy packet</button>
+              <button onClick={downloadPacket}><Download size={16} /> Download .cipherpacket</button>
+              <span>{packetStatus}</span>
+            </div>
+            <div className="packetMeta">
+              <span>{packetPreview.fileName}</span>
+              <span>{packetPreview.payloadBytes.toLocaleString()} bytes</span>
+              <span>{packetPreview.armor}</span>
+            </div>
+            <pre>{packetJson}</pre>
           </article>
         </div>
       </section>
