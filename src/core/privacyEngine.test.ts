@@ -6,6 +6,7 @@ import {
   estimateLocalFootprint,
   generateRemediationPlan,
   generateRunbook,
+  verifyPacketJson,
   type WorkspaceInput,
 } from './privacyEngine';
 
@@ -20,6 +21,21 @@ const workspace: WorkspaceInput = {
   encryptionEnabled: true,
   externalTrackers: 0,
   offlineCriticality: 9,
+};
+
+const sealedWorkspace: WorkspaceInput = {
+  name: 'Sealed Field Vault',
+  documents: [
+    { title: 'Network recovery', kind: 'runbook', words: 840, sensitivity: 'secret', updatedAt: '2026-06-01' },
+    { title: 'Medication checklist', kind: 'checklist', words: 260, sensitivity: 'private', updatedAt: '2026-06-03' },
+    { title: 'Parts inventory', kind: 'reference', words: 510, sensitivity: 'internal', updatedAt: '2026-05-28' },
+    { title: 'Radio restoration', kind: 'runbook', words: 410, sensitivity: 'internal', updatedAt: '2026-05-30' },
+    { title: 'Solar runtime', kind: 'calculator', words: 320, sensitivity: 'public', updatedAt: '2026-05-31' },
+  ],
+  cloudDependencies: 0,
+  encryptionEnabled: true,
+  externalTrackers: 0,
+  offlineCriticality: 10,
 };
 
 describe('privacy engine', () => {
@@ -94,7 +110,52 @@ describe('privacy engine', () => {
 
     expect(preview.fileName).toMatch(/\.cipherpacket$/);
     expect(preview.payloadBytes).toBeGreaterThan(500);
+    expect(preview.payloadHash).toHaveLength(64);
     expect(preview.armor).toContain('cipherdesk-field');
     expect(preview.readiness).toBe('needs-hardening');
+  });
+
+  it('verifies a sealed packet that is field-ready and structurally intact', () => {
+    const preview = buildPacketPreview(sealedWorkspace, 'field-tablet-02');
+    const verification = verifyPacketJson(JSON.stringify(preview));
+
+    expect(preview.readiness).toBe('field-ready');
+    expect(verification.status).toBe('trusted');
+    expect(verification.checks.every((check) => check.ok)).toBe(true);
+  });
+
+  it('warns when packet integrity is intact but the workspace needs hardening', () => {
+    const preview = buildPacketPreview(workspace, 'device-parker-mac-mini');
+    const verification = verifyPacketJson(JSON.stringify(preview));
+
+    expect(verification.status).toBe('warning');
+    expect(verification.checks.find((check) => check.label === 'Field readiness')?.ok).toBe(false);
+  });
+
+  it('rejects tampered packet manifests and injected cloud endpoints', () => {
+    const preview = buildPacketPreview(sealedWorkspace, 'field-tablet-02');
+    const tampered = {
+      ...preview,
+      cloudEndpoints: ['https://vendor-sync.example'],
+      manifest: {
+        ...preview.manifest,
+        documents: preview.manifest.documents.map((document, index) =>
+          index === 0 ? { ...document, title: 'Injected recovery plan' } : document,
+        ),
+      },
+    };
+
+    const verification = verifyPacketJson(JSON.stringify(tampered));
+
+    expect(verification.status).toBe('failed');
+    expect(verification.checks.find((check) => check.label === 'Manifest hash')?.ok).toBe(false);
+    expect(verification.checks.find((check) => check.label === 'No cloud endpoints')?.ok).toBe(false);
+  });
+
+  it('rejects malformed packet JSON', () => {
+    const verification = verifyPacketJson('{not-json');
+
+    expect(verification.status).toBe('failed');
+    expect(verification.summary).toContain('not valid JSON');
   });
 });

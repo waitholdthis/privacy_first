@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   AlertTriangle,
@@ -13,6 +13,7 @@ import {
   HardDrive,
   LockKeyhole,
   Radar,
+  ScanSearch,
   ShieldCheck,
   Workflow,
 } from 'lucide-react';
@@ -23,6 +24,7 @@ import {
   estimateLocalFootprint,
   generateRemediationPlan,
   generateRunbook,
+  verifyPacketJson,
   type WorkspaceInput,
 } from './core/privacyEngine';
 import './styles.css';
@@ -81,6 +83,12 @@ function App() {
   const packetPreview = useMemo(() => buildPacketPreview(workspace, deviceId), [workspace, deviceId]);
   const runtime = Math.max(0, Math.floor((batteryWh / Math.max(watts, 1)) * 10) / 10);
   const packetJson = JSON.stringify(packetPreview, null, 2);
+  const [verificationText, setVerificationText] = useState(packetJson);
+  const packetVerification = useMemo(() => verifyPacketJson(verificationText), [verificationText]);
+
+  useEffect(() => {
+    setVerificationText(packetJson);
+  }, [packetJson]);
 
   const resetPacketStatus = (value: string) => {
     setPacketStatus(value);
@@ -102,6 +110,15 @@ function App() {
     URL.revokeObjectURL(url);
     resetPacketStatus('downloaded');
   };
+
+  const tamperPacket = () => {
+    const cloned = JSON.parse(packetJson);
+    cloned.cloudEndpoints = ['https://vendor-sync.example'];
+    cloned.manifest.documents[0].title = 'Injected recovery plan';
+    setVerificationText(JSON.stringify(cloned, null, 2));
+  };
+
+  const verificationIcon = packetVerification.status === 'trusted' ? <CheckCircle2 /> : <AlertTriangle />;
 
   return (
     <main>
@@ -140,7 +157,7 @@ function App() {
       <section className="console" id="workbench">
         <div className="sectionHeader">
           <span><Radar size={18} /> Mission workbench</span>
-          <h2>Audit the vault. Harden the risks. Seal the packet.</h2>
+          <h2>Audit the vault. Harden the risks. Seal and verify the packet.</h2>
         </div>
 
         <div className="scenarioSwitch" role="tablist" aria-label="Workspace scenarios">
@@ -225,11 +242,41 @@ function App() {
             <div className="packetMeta">
               <span>{packetPreview.fileName}</span>
               <span>{packetPreview.payloadBytes.toLocaleString()} bytes</span>
+              <span>{packetPreview.payloadHash}</span>
               <span>{packetPreview.armor}</span>
             </div>
             <pre>{packetJson}</pre>
           </article>
         </div>
+
+        <article className={`panel verifier ${packetVerification.status}`}>
+          <header><ScanSearch /> Packet integrity verifier</header>
+          <div className="verifierGrid">
+            <div>
+              <div className="verifierStatus">
+                {verificationIcon}
+                <strong>{packetVerification.status}</strong>
+                <p>{packetVerification.summary}</p>
+              </div>
+              <div className="packetActions">
+                <button onClick={() => setVerificationText(packetJson)}>Load generated packet</button>
+                <button onClick={tamperPacket}>Simulate tampering</button>
+              </div>
+              <div className="verificationChecks">
+                {packetVerification.checks.map((check) => (
+                  <div className={check.ok ? 'ok' : 'bad'} key={check.label}>
+                    <span>{check.ok ? 'pass' : 'fail'}</span>
+                    <div><strong>{check.label}</strong><p>{check.detail}</p></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <label>
+              Paste received .cipherpacket JSON
+              <textarea value={verificationText} onChange={(event) => setVerificationText(event.target.value)} />
+            </label>
+          </div>
+        </article>
       </section>
 
       <section className="privacy" id="privacy">

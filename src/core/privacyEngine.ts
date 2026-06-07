@@ -32,6 +32,37 @@ export interface RemediationItem {
   impact: number;
 }
 
+export interface SyncPacket {
+  id: string;
+  transport: 'manual-file-transfer';
+  cloudEndpoints: string[];
+  manifestHash: string;
+  manifest: {
+    workspace: string;
+    deviceId: string;
+    documents: Array<Pick<LocalDocument, 'title' | 'kind' | 'sensitivity' | 'updatedAt'>>;
+    generatedAt: 'local-clock';
+  };
+}
+
+export interface PacketPreview extends SyncPacket {
+  fileName: string;
+  payloadBytes: number;
+  payloadHash: string;
+  armor: string;
+  readiness: 'field-ready' | 'needs-hardening';
+}
+
+export interface PacketVerification {
+  status: 'trusted' | 'warning' | 'failed';
+  summary: string;
+  checks: Array<{
+    label: string;
+    ok: boolean;
+    detail: string;
+  }>;
+}
+
 const sensitivityWeight: Record<Sensitivity, number> = {
   public: 1,
   internal: 2,
@@ -153,7 +184,7 @@ export function generateRemediationPlan(workspace: WorkspaceInput): RemediationI
   return items.sort((a, b) => b.impact - a.impact);
 }
 
-export function buildSyncPacket(workspace: WorkspaceInput, deviceId: string) {
+export function buildSyncPacket(workspace: WorkspaceInput, deviceId: string): SyncPacket {
   const manifest = {
     workspace: workspace.name,
     deviceId,
@@ -163,7 +194,7 @@ export function buildSyncPacket(workspace: WorkspaceInput, deviceId: string) {
       sensitivity: doc.sensitivity,
       updatedAt: doc.updatedAt,
     })),
-    generatedAt: 'local-clock',
+    generatedAt: 'local-clock' as const,
   };
   const manifestText = stableStringify(manifest);
 
@@ -176,22 +207,98 @@ export function buildSyncPacket(workspace: WorkspaceInput, deviceId: string) {
   };
 }
 
-export function buildPacketPreview(workspace: WorkspaceInput, deviceId: string) {
+export function buildPacketPreview(workspace: WorkspaceInput, deviceId: string): PacketPreview {
   const packet = buildSyncPacket(workspace, deviceId);
   const score = calculateSovereigntyScore(workspace);
   const footprint = estimateLocalFootprint(workspace.documents, workspace.encryptionEnabled);
   const runbook = generateRunbook(workspace);
   const remediation = generateRemediationPlan(workspace);
   const sealedPayload = stableStringify({ packet, score, footprint, runbook, remediation });
-  const armor = chunk(`${packet.id}.${pseudoSha256(sealedPayload)}.${shortHash(sealedPayload)}`, 16).join('-');
+  const payloadHash = pseudoSha256(sealedPayload);
+  const armor = chunk(`${packet.id}.${payloadHash}.${shortHash(sealedPayload)}`, 16).join('-');
 
   return {
     ...packet,
     fileName: `${packet.id}.cipherpacket`,
     payloadBytes: new TextEncoder().encode(sealedPayload).length,
+    payloadHash,
     armor,
     readiness: score.score >= 88 && remediation.length <= 1 ? 'field-ready' : 'needs-hardening',
   };
+}
+
+export function verifyPacketJson(rawPacket: string): PacketVerification {
+  let packet: PacketPreview;
+
+  try {
+    packet = JSON.parse(rawPacket) as PacketPreview;
+  } catch {
+    return {
+      status: 'failed',
+      summary: 'Packet is not valid JSON.',
+      checks: [{ label: 'Readable packet', ok: false, detail: 'Paste a complete .cipherpacket JSON payload.' }],
+    };
+  }
+
+  const checks: PacketVerification['checks'] = [];
+  const manifestText = isPlainObject(packet.manifest) ? stableStringify(packet.manifest) : '';
+  const expectedManifestHash = manifestText ? pseudoSha256(manifestText) : '';
+  const expectedFileName = typeof packet.id === 'string' ? `${packet.id}.cipherpacket` : '';
+  const armorToken = typeof packet.armor === 'string' ? packet.armor.replace(/-/g, '') : '';
+
+  const manifestHashOk = Boolean(expectedManifestHash && packet.manifestHash === expectedManifestHash);
+  checks.push({
+    label: 'Manifest hash',
+    ok: manifestHashOk,
+    detail: manifestHashOk
+      ? 'Manifest matches its recorded hash.'
+      : expectedManifestHash
+        ? 'Manifest hash drift detected; packet contents may have been edited.'
+        : 'Manifest is missing or malformed.',
+  });
+
+  checks.push({
+    label: 'No cloud endpoints',
+    ok: Array.isArray(packet.cloudEndpoints) && packet.cloudEndpoints.length === 0,
+    detail: Array.isArray(packet.cloudEndpoints) ? `${packet.cloudEndpoints.length} cloud endpoint(s) declared.` : 'cloudEndpoints must be an array.',
+  });
+
+  checks.push({
+    label: 'Manual transfer only',
+    ok: packet.transport === 'manual-file-transfer',
+    detail: `Transport: ${String(packet.transport ?? 'missing')}`,
+  });
+
+  checks.push({
+    label: 'Filename binding',
+    ok: Boolean(expectedFileName && packet.fileName === expectedFileName),
+    detail: expectedFileName ? `Expected ${expectedFileName}.` : 'Packet id is missing.',
+  });
+
+  checks.push({
+    label: 'Armor fingerprint',
+    ok: Boolean(typeof packet.payloadHash === 'string' && packet.payloadHash.length === 64 && armorToken.includes(packet.payloadHash.slice(0, 18))),
+    detail: typeof packet.payloadHash === 'string' ? 'Armor contains the payload fingerprint prefix.' : 'payloadHash is missing.',
+  });
+
+  checks.push({
+    label: 'Field readiness',
+    ok: packet.readiness === 'field-ready',
+    detail: packet.readiness === 'field-ready' ? 'Packet marked ready to seal.' : 'Packet still needs hardening before transfer.',
+  });
+
+  const failedChecks = checks.filter((check) => !check.ok);
+  const structuralFailures = failedChecks.filter((check) => check.label !== 'Field readiness');
+
+  if (structuralFailures.length > 0) {
+    return { status: 'failed', summary: `${structuralFailures.length} integrity check(s) failed. Do not trust this packet.`, checks };
+  }
+
+  if (failedChecks.length > 0) {
+    return { status: 'warning', summary: 'Packet integrity is intact, but the workspace still needs hardening.', checks };
+  }
+
+  return { status: 'trusted', summary: 'Packet integrity verified and ready for manual transfer.', checks };
 }
 
 export const demoWorkspace: WorkspaceInput = {
@@ -251,4 +358,8 @@ function chunk(value: string, size: number) {
     chunks.push(value.slice(index, index + size));
   }
   return chunks;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }

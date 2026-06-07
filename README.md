@@ -26,6 +26,7 @@ CipherDesk is designed around that reality:
 - Secure sync packet manifest: creates a deterministic packet ID/hash without any cloud endpoint.
 - Hardening queue: converts privacy posture risks into prioritized remediation steps with expected sovereignty impact.
 - `.cipherpacket` preview: assembles a deterministic portable packet payload with copy/download controls for manual transfer workflows.
+- Packet integrity verifier: validates received packet JSON for manifest tampering, cloud endpoint injection, filename binding, transport mode, armor fingerprint, and field-readiness state.
 - Cinematic React/Vite interface with scenario switching and live calculations.
 
 ## Privacy model
@@ -46,6 +47,14 @@ Future production direction:
 - Add optional peer-to-peer sync without a centralized vendor data store.
 
 ## Latest improvement sprint
+
+The third sprint closed the export loop by adding packet verification:
+
+- Added a packet integrity verifier that reads pasted `.cipherpacket` JSON and returns trusted/warning/failed states.
+- Added checks for manifest-hash drift, injected cloud endpoints, manual-transfer mode, filename binding, armor fingerprint, and field-readiness state.
+- Added a tamper simulation in the UI so the product visibly proves compromised packets are rejected.
+- Added packet payload hashes to previews so exported packets carry a stronger verification surface.
+- Expanded Vitest coverage for trusted packets, intact-but-needs-hardening packets, tampered packets, and malformed JSON.
 
 The second sprint turned CipherDesk from a static MVP demo into a sharper product workflow:
 
@@ -74,7 +83,7 @@ npm run dev
 
 ## Development notes
 
-The core engine lives in `src/core/privacyEngine.ts` and is covered by `src/core/privacyEngine.test.ts`, including packet hash determinism and hardening-queue behavior.
+The core engine lives in `src/core/privacyEngine.ts` and is covered by `src/core/privacyEngine.test.ts`, including packet hash determinism, hardening-queue behavior, packet preview assembly, and packet integrity verification.
 
 The interface lives in `src/main.tsx` and `src/styles.css`.
 
