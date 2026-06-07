@@ -25,6 +25,9 @@ CipherDesk is designed around that reality:
 - Runbook generator: orders operational notes by sensitivity and emits handling protocols.
 - Secure sync packet manifest: creates a deterministic packet ID/hash without any cloud endpoint.
 - Hardening queue: converts privacy posture risks into prioritized remediation steps with expected sovereignty impact.
+- Autonomy command layer: combines sovereignty score, power budget, threat model, packet reserve, and next-best action into a single operator posture.
+- Threat model generator: ranks local compromise, telemetry leakage, cloud lockout, network-denied windows, and knowledge gaps by severity/likelihood.
+- Mission timeline planner: allocates capture, operate, handoff, and reserve phases with explicit failure triggers.
 - `.cipherpacket` preview: assembles a deterministic portable packet payload with copy/download controls for manual transfer workflows.
 - Packet integrity verifier: validates received packet JSON for manifest tampering, cloud endpoint injection, filename binding, transport mode, armor fingerprint, and field-readiness state.
 - Cinematic React/Vite interface with scenario switching and live calculations.
@@ -47,6 +50,14 @@ Future production direction:
 - Add optional peer-to-peer sync without a centralized vendor data store.
 
 ## Latest improvement sprint
+
+The fourth sprint moved CipherDesk from privacy dashboard to operator command system:
+
+- Added an Autonomy command layer that fuses privacy score, battery runtime, threat pressure, remediation impact, and packet reserve into an autonomy index.
+- Added deterministic threat modeling for device compromise, telemetry leakage, cloud lockout, network-denied operation, and missing institutional knowledge.
+- Added a mission timeline generator with capture/operate/handoff/reserve phases and explicit failure triggers.
+- Added a field power budget that computes runtime, packet verification cycles, and reserve packet sizing.
+- Expanded the UI with cinematic command panels and added Vitest coverage for the new operator engine.
 
 The third sprint closed the export loop by adding packet verification:
 

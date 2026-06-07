@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildAutonomyBrief,
   buildPacketPreview,
   buildSyncPacket,
   calculateSovereigntyScore,
   estimateLocalFootprint,
+  generateMissionPhases,
   generateRemediationPlan,
   generateRunbook,
+  generateThreatModel,
   verifyPacketJson,
   type WorkspaceInput,
 } from './privacyEngine';
@@ -157,5 +160,37 @@ describe('privacy engine', () => {
 
     expect(verification.status).toBe('failed');
     expect(verification.summary).toContain('not valid JSON');
+  });
+
+  it('generates an operator threat model ranked by severity and likelihood', () => {
+    const threats = generateThreatModel({
+      ...workspace,
+      encryptionEnabled: false,
+      externalTrackers: 2,
+      cloudDependencies: 3,
+    });
+
+    expect(threats[0].severity).toBe('critical');
+    expect(threats.map((threat) => threat.name)).toContain('Local device compromise');
+    expect(threats.map((threat) => threat.name)).toContain('Telemetry leakage');
+  });
+
+  it('allocates runtime into mission phases with explicit failure triggers', () => {
+    const phases = generateMissionPhases(sealedWorkspace, 12.2);
+
+    expect(phases).toHaveLength(4);
+    expect(phases[0].phase).toContain('capture');
+    expect(phases.every((phase) => phase.durationHours > 0)).toBe(true);
+    expect(phases.map((phase) => phase.failureTrigger).join(' ')).toContain('packet verification');
+  });
+
+  it('builds an autonomy brief that combines privacy, power, threats, and next-best action', () => {
+    const brief = buildAutonomyBrief(sealedWorkspace, 768, 36);
+
+    expect(brief.autonomyIndex).toBeGreaterThanOrEqual(80);
+    expect(brief.posture).toMatch(/deploy|field-operate/);
+    expect(brief.powerBudget.runtimeHours).toBeCloseTo(21.3, 1);
+    expect(brief.powerBudget.transferCycles).toBeGreaterThan(8);
+    expect(brief.nextBestAction.length).toBeGreaterThan(20);
   });
 });

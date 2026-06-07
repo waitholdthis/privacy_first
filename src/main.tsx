@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import {
   AlertTriangle,
   BatteryCharging,
+  BrainCircuit,
   CheckCircle2,
   Clipboard,
   CloudOff,
@@ -18,6 +19,7 @@ import {
   Workflow,
 } from 'lucide-react';
 import {
+  buildAutonomyBrief,
   buildPacketPreview,
   calculateSovereigntyScore,
   demoWorkspace,
@@ -82,6 +84,7 @@ function App() {
   const remediation = useMemo(() => generateRemediationPlan(workspace), [workspace]);
   const packetPreview = useMemo(() => buildPacketPreview(workspace, deviceId), [workspace, deviceId]);
   const runtime = Math.max(0, Math.floor((batteryWh / Math.max(watts, 1)) * 10) / 10);
+  const autonomyBrief = useMemo(() => buildAutonomyBrief(workspace, batteryWh, watts), [workspace, batteryWh, watts]);
   const packetJson = JSON.stringify(packetPreview, null, 2);
   const [verificationText, setVerificationText] = useState(packetJson);
   const packetVerification = useMemo(() => verifyPacketJson(verificationText), [verificationText]);
@@ -198,6 +201,58 @@ function App() {
             <label>Battery watt-hours<input value={batteryWh} onChange={(event) => setBatteryWh(Number(event.target.value))} type="number" /></label>
             <label>Device draw watts<input value={watts} onChange={(event) => setWatts(Number(event.target.value))} type="number" /></label>
             <div className="runtime"><strong>{runtime}h</strong><span>estimated local operating time</span></div>
+          </article>
+        </div>
+
+        <div className="autonomyDeck">
+          <article className="panel autonomyPrime">
+            <header><BrainCircuit /> Autonomy command layer</header>
+            <div className="autonomyScore">
+              <strong>{autonomyBrief.autonomyIndex}</strong>
+              <span>{autonomyBrief.posture}</span>
+            </div>
+            <p>{autonomyBrief.operatorPromise}</p>
+            <div className="operatorAction">
+              <span>next best action</span>
+              <strong>{autonomyBrief.nextBestAction}</strong>
+            </div>
+          </article>
+
+          <article className="panel threatPanel">
+            <header><Radar /> Threat model</header>
+            <div className="threatList">
+              {autonomyBrief.threatVectors.slice(0, 4).map((threat) => (
+                <div className={`threat ${threat.severity}`} key={threat.name}>
+                  <span>{threat.severity}</span>
+                  <div>
+                    <strong>{threat.name}</strong>
+                    <p>{threat.countermeasure}</p>
+                    <em>likelihood {threat.likelihood}/10</em>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </article>
+
+          <article className="panel missionPanel">
+            <header><Workflow /> Mission timeline</header>
+            <div className="missionList">
+              {autonomyBrief.missionPhases.map((phase) => (
+                <div key={phase.phase}>
+                  <span>{phase.phase}</span>
+                  <strong>{phase.durationHours}h</strong>
+                  <p>{phase.objective}</p>
+                  <em>{phase.failureTrigger}</em>
+                </div>
+              ))}
+            </div>
+          </article>
+
+          <article className="panel powerPanel">
+            <header><BatteryCharging /> Field power budget</header>
+            <div className="metric"><strong>{autonomyBrief.powerBudget.runtimeHours}h</strong><span>computed runtime</span></div>
+            <div className="metric"><strong>{autonomyBrief.powerBudget.transferCycles}</strong><span>packet verification cycles</span></div>
+            <div className="metric"><strong>{autonomyBrief.powerBudget.packetReserveKilobytes} KB</strong><span>packet reserve target</span></div>
           </article>
         </div>
 

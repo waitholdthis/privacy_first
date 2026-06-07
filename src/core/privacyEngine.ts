@@ -32,6 +32,35 @@ export interface RemediationItem {
   impact: number;
 }
 
+
+export interface ThreatVector {
+  name: string;
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  likelihood: number;
+  countermeasure: string;
+}
+
+export interface MissionPhase {
+  phase: string;
+  objective: string;
+  durationHours: number;
+  failureTrigger: string;
+}
+
+export interface AutonomyBrief {
+  autonomyIndex: number;
+  posture: 'demo' | 'harden' | 'deploy' | 'field-operate';
+  nextBestAction: string;
+  operatorPromise: string;
+  threatVectors: ThreatVector[];
+  missionPhases: MissionPhase[];
+  powerBudget: {
+    runtimeHours: number;
+    packetReserveKilobytes: number;
+    transferCycles: number;
+  };
+}
+
 export interface SyncPacket {
   id: string;
   transport: 'manual-file-transfer';
@@ -182,6 +211,142 @@ export function generateRemediationPlan(workspace: WorkspaceInput): RemediationI
   }
 
   return items.sort((a, b) => b.impact - a.impact);
+}
+
+
+export function generateThreatModel(workspace: WorkspaceInput): ThreatVector[] {
+  const vectors: ThreatVector[] = [];
+  const secretDocs = workspace.documents.filter((document) => document.sensitivity === 'secret').length;
+  const privateDocs = workspace.documents.filter((document) => document.sensitivity === 'private').length;
+
+  if (!workspace.encryptionEnabled) {
+    vectors.push({
+      name: 'Local device compromise',
+      severity: 'critical',
+      likelihood: 9,
+      countermeasure: 'Seal the vault with passphrase-backed encryption before any private capture.',
+    });
+  } else if (secretDocs > 0) {
+    vectors.push({
+      name: 'High-sensitivity vault exposure',
+      severity: 'high',
+      likelihood: Math.min(8, secretDocs + privateDocs + 2),
+      countermeasure: 'Require packet verification and trusted-device unlock for every secret runbook.',
+    });
+  }
+
+  if (workspace.externalTrackers > 0) {
+    vectors.push({
+      name: 'Telemetry leakage',
+      severity: workspace.externalTrackers > 1 ? 'critical' : 'high',
+      likelihood: Math.min(10, workspace.externalTrackers * 4),
+      countermeasure: 'Remove external scripts and replace analytics with local-only event journaling.',
+    });
+  }
+
+  if (workspace.cloudDependencies > 0) {
+    vectors.push({
+      name: 'Cloud lockout or vendor seizure',
+      severity: workspace.cloudDependencies > 2 ? 'critical' : 'high',
+      likelihood: Math.min(10, workspace.cloudDependencies * 3),
+      countermeasure: 'Create removable-media, LAN, or printed-fallback transfer routes for every dependency.',
+    });
+  }
+
+  if (workspace.offlineCriticality >= 8) {
+    vectors.push({
+      name: 'Network-denied operation window',
+      severity: 'high',
+      likelihood: workspace.offlineCriticality,
+      countermeasure: 'Pre-stage runbooks, calculators, packet verifier, and power budget before deployment.',
+    });
+  }
+
+  if (workspace.documents.length < 5) {
+    vectors.push({
+      name: 'Knowledge gap under pressure',
+      severity: 'medium',
+      likelihood: Math.max(3, 7 - workspace.documents.length),
+      countermeasure: 'Capture missing checklists until the workspace can run without tribal memory.',
+    });
+  }
+
+  if (vectors.length === 0) {
+    vectors.push({
+      name: 'Residual operator error',
+      severity: 'low',
+      likelihood: 2,
+      countermeasure: 'Keep rehearsal cadence and packet verification rituals active.',
+    });
+  }
+
+  return vectors.sort((left, right) => severityRank(right.severity) - severityRank(left.severity) || right.likelihood - left.likelihood);
+}
+
+export function generateMissionPhases(workspace: WorkspaceInput, runtimeHours: number): MissionPhase[] {
+  const safeRuntime = Math.max(0.5, runtimeHours);
+  const captureHours = clamp(safeRuntime * 0.18, 0.5, 4);
+  const operateHours = clamp(safeRuntime * 0.55, 1, 18);
+  const handoffHours = clamp(safeRuntime * 0.17, 0.5, 6);
+  const reserveHours = clamp(safeRuntime - captureHours - operateHours - handoffHours, 0.5, 8);
+
+  return [
+    {
+      phase: '01 / capture',
+      objective: `Freeze ${workspace.documents.length} critical document${workspace.documents.length === 1 ? '' : 's'} into a local runbook order.`,
+      durationHours: roundOne(captureHours),
+      failureTrigger: 'Stop capture if any required checklist remains cloud-only.',
+    },
+    {
+      phase: '02 / operate',
+      objective: 'Use the local desk as the source of truth while network access is optional or unavailable.',
+      durationHours: roundOne(operateHours),
+      failureTrigger: 'Switch to paper or cold-spare device if battery reserve falls below 20%.',
+    },
+    {
+      phase: '03 / handoff',
+      objective: 'Seal, transfer, and verify .cipherpacket payloads on receiving hardware.',
+      durationHours: roundOne(handoffHours),
+      failureTrigger: 'Reject the handoff if manifest, filename, armor, or cloud-endpoint checks fail.',
+    },
+    {
+      phase: '04 / reserve',
+      objective: 'Hold energy and operator attention for recovery, audit, and after-action notes.',
+      durationHours: roundOne(reserveHours),
+      failureTrigger: 'Declare degraded mode when reserve cannot cover one more packet verification cycle.',
+    },
+  ];
+}
+
+export function buildAutonomyBrief(workspace: WorkspaceInput, batteryWh: number, watts: number): AutonomyBrief {
+  const score = calculateSovereigntyScore(workspace);
+  const remediation = generateRemediationPlan(workspace);
+  const footprint = estimateLocalFootprint(workspace.documents, workspace.encryptionEnabled);
+  const runtimeHours = roundOne(Math.max(0, batteryWh / Math.max(1, watts)));
+  const threatVectors = generateThreatModel(workspace);
+  const missionPhases = generateMissionPhases(workspace, runtimeHours);
+  const threatPenalty = threatVectors.reduce((sum, vector) => sum + severityRank(vector.severity) * vector.likelihood, 0) / 5;
+  const remediationPenalty = remediation.reduce((sum, item) => sum + item.impact, 0) / 3;
+  const runtimeBonus = Math.min(16, runtimeHours * 1.2);
+  const autonomyIndex = Math.round(clamp(score.score + runtimeBonus - threatPenalty - remediationPenalty, 0, 100));
+  const posture = autonomyIndex >= 92 ? 'field-operate' : autonomyIndex >= 80 ? 'deploy' : autonomyIndex >= 58 ? 'harden' : 'demo';
+  const nextBestAction = remediation[0]?.action ?? threatVectors[0]?.countermeasure ?? 'Run one rehearsal, export a packet, and verify it on a second trusted device.';
+
+  return {
+    autonomyIndex,
+    posture,
+    nextBestAction,
+    operatorPromise: posture === 'field-operate'
+      ? 'This workspace can function as a field operations desk without depending on the cloud.'
+      : 'This workspace has a clear hardening route before it should be trusted under pressure.',
+    threatVectors,
+    missionPhases,
+    powerBudget: {
+      runtimeHours,
+      packetReserveKilobytes: Math.ceil(footprint.syncPacketKilobytes * Math.max(2, workspace.documents.length)),
+      transferCycles: Math.max(1, Math.floor(runtimeHours / 1.5)),
+    },
+  };
 }
 
 export function buildSyncPacket(workspace: WorkspaceInput, deviceId: string): SyncPacket {
@@ -358,6 +523,15 @@ function chunk(value: string, size: number) {
     chunks.push(value.slice(index, index + size));
   }
   return chunks;
+}
+
+
+function severityRank(severity: ThreatVector['severity']) {
+  return { low: 1, medium: 2, high: 3, critical: 4 }[severity];
+}
+
+function roundOne(value: number) {
+  return Math.round(value * 10) / 10;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
